@@ -15,14 +15,15 @@ int blockSize = 256;
 
 __global__
 void sublist_ranking(long *cuda_next, long *cuda_rank, bool *is_head, 
-long *sublist_id, long *sublist_length, long *sublist_next_node, long n) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	if (i >= n) {
+long *sublist_id, long *sublist_length, long *sublist_next_node, long n,
+long *cuda_head) {
+	int headIndex  = blockIdx.x * blockDim.x + threadIdx.x;
+	if (headIndex >= n) {
 		return;
 	}
-	if (is_head[i]) {
-		long current_rank = 0;
-		long current_node = i;
+	int i = cuda_head[headIndex];
+	long current_rank = 0;
+	long current_node = i;
 				// make sure the node's not the head
 		do {
 			// set list ranking for sublist on processor
@@ -34,7 +35,6 @@ long *sublist_id, long *sublist_length, long *sublist_next_node, long n) {
 		while (current_node != NIL && !is_head[current_node]);
 		sublist_length[i] = current_rank;
 		sublist_next_node[i] = current_node;
-	}
 }
 
 __global__
@@ -64,8 +64,9 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 
 	// ref: So, in practice, I actually saw improved performance by choosing a value of s that was greater than P and allowing OpenMP to sort of load balance the work across the processors.
 	/// just pick some big number
-	int sublists = n / blockSize;
+	int sublists = blockSize;
 	// https://developer.nvidia.com/blog/even-easier-introduction-cuda/
+	int numSublistBlocks = (sublists + blockSize - 1) / blockSize;
 	int numBlocks = (n + blockSize - 1) / blockSize;
 
 	// keep trrack of bunch of sublist information
@@ -76,6 +77,7 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 	long *rank_offset;
 	long *cuda_next;
 	long *cuda_rank;
+	long *cuda_head;
 	
 	cudaMallocManaged(&cuda_next, n*sizeof(long));
 	cudaMallocManaged(&cuda_rank, n*sizeof(long));
@@ -84,6 +86,7 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 	cudaMallocManaged(&sublist_length, n*sizeof(long));
 	cudaMallocManaged(&sublist_next_node, n*sizeof(long));
 	cudaMallocManaged(&rank_offset, n*sizeof(long));
+	cudaMallocManaged(&cuda_head, sublists*sizeof(long));
 	memcpy(cuda_next, next, n * sizeof(long));
 
 
@@ -91,15 +94,22 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 		is_head[i] = false;
 	}
 
+	cuda_head[0] = head;
 	is_head[head] = true;	
 
 	// random choose sublists - 1 sublist heads
-	for (int i = 0; i < sublists - 1; i++) {
+	for (int i = 1; i < sublists; i++) {
 		long node = rand() % n;
 	// account for duplicate somehow...or maybe it doesnt really matter that much
-		is_head[node] = true;
+	// maybe this will help speed up so try it in cuda
+	while(is_head[node]) {
+		node = rand() % n;
 	}
-	sublist_ranking<<<numBlocks, blockSize>>>(cuda_next, cuda_rank, is_head, sublist_id, sublist_length, sublist_next_node, n);
+		is_head[node] = true;
+		cuda_head[i] = node;
+	}
+	
+	sublist_ranking<<<numSublistBlocks, blockSize>>>(cuda_next, cuda_rank, is_head, sublist_id, sublist_length, sublist_next_node, sublists, cuda_head);
 	cudaDeviceSynchronize();
 
 	rank_offset[head] = 0;
@@ -124,4 +134,5 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 	cudaFree(rank_offset);
 	cudaFree(cuda_next);
 	cudaFree(cuda_rank);
+	cudaFree(cuda_head);
 }
