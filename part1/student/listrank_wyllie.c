@@ -6,6 +6,7 @@
 
 void parallelListRanks (long head, const long* next, long* rank, size_t n)
 {
+	#pragma omp parallel for
 	for (int i = 0; i < n; i++) {
 		rank[i] = 1;
 		if (next[i] == NIL) {
@@ -19,21 +20,41 @@ void parallelListRanks (long head, const long* next, long* rank, size_t n)
 
 	memcpy(neighbor, next, n * sizeof(long));
 
+	// try using double buffering?
+	// https://www.geeksforgeeks.org/dbms/double-buffering/
+	long *rank_current = rank;
+	long *neighbor_current = neighbor;
+	long *rank_next = rank_copy;
+	long *neighbor_next = neighbor_copy;
+
 	for (int iter = 0; iter < (int)ceil(log2(n)); iter++) {
-		memcpy(neighbor_copy, neighbor, n * sizeof(long));
-		memcpy(rank_copy, rank, n * sizeof(long));
 		#pragma omp parallel for
 		for (int i = 0; i < n; i++) {
-			if (neighbor_copy[i] != NIL) {
-				rank[i] = rank_copy[i] + rank_copy[neighbor_copy[i]];
-				neighbor[i] = neighbor_copy[neighbor_copy[i]];
+			if (neighbor_current[i] != NIL) {
+				rank_next[i] = rank_current[i] + rank_current[neighbor_current[i]];
+				neighbor_next[i] = neighbor_current[neighbor_current[i]];
+			} else {
+				rank_next[i] = rank_current[i];
+				neighbor_next[i] = NIL;
 			}
 		}
-
+		
+		long *tmp = rank_current;
+		rank_current = rank_next;
+		rank_next = tmp;
+		
+		tmp = neighbor_current;
+		neighbor_current = neighbor_next;
+		neighbor_next = tmp;
+	}
+	
+	if (rank_current != rank) {
+		memcpy(rank, rank_current, n * sizeof(long));
 	}
 	
 	long inverse = rank[head];
 
+	#pragma omp parallel for
 	for (int i = 0; i < n; i++) {
 		rank[i] = inverse - rank[i];
 	}
