@@ -11,29 +11,18 @@ void parallelListRanks (long head, const long* next, long* rank, size_t n) {
 
 	// random heads
 	// Split the linked list into sublists by randomly choosing at least P - 1 sublist heads in addition to the list’s true head to create s sublists
-	int num_processes = omp_get_max_threads();
 
-	// ref: So, in practice, I actually saw improved performance by choosing a value of s that was greater than P and allowing OpenMP to sort of load balance the work across the processors.
-	int sublists = num_processes * 4;
-	
+	// try making more sublists
+	int sublists = n / 1024;
+
 	// keep trrack of bunch of sublist information
-	bool *is_head = malloc(n * sizeof(bool));
+	// https://stackoverflow.com/questions/2605476/calloc-v-s-malloc-and-time-efficiency 
+	// try calloc instead? delete for loop
+	bool *is_head = calloc(n, sizeof(bool));
 	long *sublist_id = malloc(n * sizeof(long));
 	long *sublist_length = malloc(n * sizeof(long));
 	long *sublist_next_node = malloc(n * sizeof(long));
 	long *rank_offset = malloc(n * sizeof(long));
-
-	// initialize values for sublist info
-	for (int i = 0; i< n; i++){
-		sublist_id[i] = -1;
-		sublist_length[i] = 0;
-		sublist_next_node[i] = NIL;
-		rank_offset[i] = 0;
-	}
-
-	for (int i = 0; i < n; i++) {
-		is_head[i] = false;
-	}
 
 	is_head[head] = true;	
 
