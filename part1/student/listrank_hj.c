@@ -23,6 +23,7 @@ void parallelListRanks (long head, const long* next, long* rank, size_t n) {
 	long *sublist_next_node = malloc(n * sizeof(long));
 	long *rank_offset = malloc(n * sizeof(long));
 
+	// initialize values for sublist info
 	for (int i = 0; i< n; i++){
 		sublist_id[i] = -1;
 		sublist_length[i] = 0;
@@ -44,19 +45,20 @@ void parallelListRanks (long head, const long* next, long* rank, size_t n) {
 	}
 
 	// traverse each subliststopping when reach head of another sublist
+		// just replace these openmp things with cuda
 	#pragma omp parallel for
 	for(int i = 0; i < n; i++) {
 	if (is_head[i]) {
 		long current_rank = 0;
 		long current_node = i;
-		while (current_node != NIL && (current_node == i || !is_head[current_node])) {
+				// make sure the node's not the head
+		do {
 			// set list ranking for sublist on processor
 			rank[current_node] = current_rank;
 			sublist_id[current_node] = i;
 			current_rank++;
 			current_node = next[current_node];
-
-		}
+		} while (current_node != NIL && !is_head[current_node]);
 			
 		// reached end of sublist - record total rank/index of next sublist head
 		sublist_length[i] = current_rank;
