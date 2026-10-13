@@ -23,7 +23,7 @@ void parallelListRanks (long head, const long* next, long* rank, size_t n) {
 	long *sublist_next_node = malloc(n * sizeof(long));
 	long *rank_offset = malloc(n * sizeof(long));
 
-	for (int i = 0; i < n; i++){
+	for (int i = 0; i< n; i++){
 		sublist_id[i] = -1;
 		sublist_length[i] = 0;
 		sublist_next_node[i] = NIL;
@@ -58,6 +58,7 @@ void parallelListRanks (long head, const long* next, long* rank, size_t n) {
 
 		}
 			
+		// reached end of sublist - record total rank/index of next sublist head
 		sublist_length[i] = current_rank;
 		sublist_next_node[i] = current_node;
 
@@ -67,12 +68,13 @@ void parallelListRanks (long head, const long* next, long* rank, size_t n) {
 	long previous_node = head;
 	long current_node = sublist_next_node[head];
 
-	// go through whole list...
+	// we can walk across the sublist heads themselves in the correct order since we recorded each sublist’s successor index.
 	while (current_node != NIL) {
 		rank_offset[current_node] = rank_offset[previous_node] + sublist_length[previous_node];
 		previous_node = current_node;
 		current_node = sublist_next_node[current_node];
 	}
+	// rank offsets to all nodes in the sublists
 	#pragma omp parallel for
 	for(int i = 0; i < n; i++) {
 		rank[i] += rank_offset[sublist_id[i]];
