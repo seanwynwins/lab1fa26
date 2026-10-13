@@ -10,6 +10,15 @@
 // using this ref: https://developer.nvidia.com/blog/even-easier-introduction-cuda/
 // just move pragma stuff to global gfunction
 // https://developer.nvidia.com/blog/even-easier-introduction-cuda/
+// 
+/*
+The migration is expensive because page faults occur individually, and GPU threads stall while they wait for the page migration. Because I know what memory is needed by the kernel (x and y arrays), I can use prefetching to make sure that the data is on the GPU before the kernel needs it. I do this by using the cudaMemPrefetchAsync() function before launching the kernel:
+
+// Prefetch the x and y arrays to the GPU
+cudaMemPrefetchAsync(x, N*sizeof(float), 0, 0);
+cudaMemPrefetchAsync(y, N*sizeof(float), 0, 0);
+
+*/
 
 int blockSize = 256;
 
@@ -64,7 +73,13 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 
 	// ref: So, in practice, I actually saw improved performance by choosing a value of s that was greater than P and allowing OpenMP to sort of load balance the work across the processors.
 	/// just pick some big number
-	int sublists = blockSize;
+	// adjust this...
+	int sublists = n / blockSize;
+	if (sublists < 1) {
+		sublists = 1;
+	} else if (sublists > n) {
+		sublists = n;
+	}
 	// https://developer.nvidia.com/blog/even-easier-introduction-cuda/
 	int numSublistBlocks = (sublists + blockSize - 1) / blockSize;
 	int numBlocks = (n + blockSize - 1) / blockSize;
@@ -109,9 +124,19 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 		cuda_head[i] = node;
 	}
 	
+	cudaMemPrefetchAsync(is_head, n*sizeof(bool), 0, 0);
+	cudaMemPrefetchAsync(sublist_id, n*sizeof(long), 0, 0);
+	cudaMemPrefetchAsync(sublist_length, n*sizeof(long), 0, 0);
+	cudaMemPrefetchAsync(sublist_next_node, n*sizeof(long), 0, 0);
+	cudaMemPrefetchAsync(rank_offset, n*sizeof(long), 0, 0);
+	cudaMemPrefetchAsync(cuda_next, n*sizeof(long), 0, 0);
+	cudaMemPrefetchAsync(cuda_rank, n*sizeof(long), 0, 0);
+	cudaMemPrefetchAsync(cuda_head, sublists*sizeof(long), 0, 0);
 	sublist_ranking<<<numSublistBlocks, blockSize>>>(cuda_next, cuda_rank, is_head, sublist_id, sublist_length, sublist_next_node, sublists, cuda_head);
 	cudaDeviceSynchronize();
 
+	// head should actually be beginning
+	
 	rank_offset[head] = 0;
 	long previous_node = head;
 	long current_node = sublist_next_node[head];
@@ -123,6 +148,7 @@ extern "C" void parallelListRanks(const long head, const long* next, long* rank,
 		current_node = sublist_next_node[current_node];
 	}
 
+	cudaMemPrefetchAsync(rank_offset, n*sizeof(long), 0, 0);
 	offset<<<numBlocks, blockSize>>>(cuda_rank, rank_offset, sublist_id, n);
 	cudaDeviceSynchronize();
 
